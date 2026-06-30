@@ -9,8 +9,8 @@ on:
         default: 'auto'
         type: choice
         options:
-          - auto       # Sitemap puis crawl récursif
-          - resume     # Reprendre là où ça s'est arrêté
+          - auto          # Crawl complet depuis zéro
+          - resume        # Reprendre là où ça s'est arrêté
           - sitemap-only  # Sitemap uniquement
 
 jobs:
@@ -43,14 +43,15 @@ jobs:
       - name: Run scraper
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          if [ "$MODE" = "resume" ] || [ -f scraper_state.json ]; then
+          if [ "$MODE" = "resume" ]; then
             echo "Reprise depuis l'état précédent..."
             python3 scrape.py --resume
           elif [ "$MODE" = "sitemap-only" ]; then
             echo "Mode sitemap uniquement..."
             python3 scrape.py --sitemap-only
           else
-            echo "Crawl complet..."
+            echo "Crawl complet (depuis zéro)..."
+            rm -f scraper_state.json
             python3 scrape.py
           fi
 
