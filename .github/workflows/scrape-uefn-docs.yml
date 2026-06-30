@@ -40,6 +40,17 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
 
+      - name: Test connectivity to Epic Games
+        run: |
+          echo "=== Test connexion Epic Games ==="
+          curl -s -o /dev/null -w "HTTP status: %{http_code}\n" \
+            "https://dev.epicgames.com/documentation/en-us/uefn/unreal-editor-for-fortnite-documentation" \
+            --max-time 15 || echo "curl failed (exit $?)"
+          echo "=== Test sitemap ==="
+          curl -s -o /dev/null -w "Sitemap HTTP status: %{http_code}\n" \
+            "https://dev.epicgames.com/sitemap.xml" \
+            --max-time 15 || echo "sitemap curl failed"
+
       - name: Run scraper
         run: |
           MODE="${{ github.event.inputs.mode }}"
