@@ -1,0 +1,68 @@
+name: Scrape UEFN Documentation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode de scraping'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto       # Sitemap puis crawl récursif
+          - resume     # Reprendre là où ça s'est arrêté
+          - sitemap-only  # Sitemap uniquement
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: claude/uefn-documentation-ny5a0m
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Run scraper
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "resume" ] || [ -f scraper_state.json ]; then
+            echo "Reprise depuis l'état précédent..."
+            python3 scrape.py --resume
+          elif [ "$MODE" = "sitemap-only" ]; then
+            echo "Mode sitemap uniquement..."
+            python3 scrape.py --sitemap-only
+          else
+            echo "Crawl complet..."
+            python3 scrape.py
+          fi
+
+      - name: Commit documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/ scraper_state.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "Aucune nouvelle page à committer."
+          else
+            COUNT=$(find docs/uefn -name "*.md" 2>/dev/null | wc -l)
+            git commit -m "docs: add UEFN documentation (${COUNT} pages)"
+            git push
+          fi
