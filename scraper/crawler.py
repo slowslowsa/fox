@@ -5,7 +5,6 @@ from playwright.async_api import async_playwright, BrowserContext, Page
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from scraper.config import (
-    CA_BUNDLE,
     DOCS_ROOT,
     MAX_CONCURRENT_PAGES,
     MAX_RETRIES,
@@ -17,6 +16,15 @@ from scraper.config import (
 )
 from scraper.extractor import extract_content
 from scraper.writer import write_page
+
+NAV_SELECTORS = [
+    "nav a[href]",
+    "[class*='sidebar'] a[href]",
+    "[class*='Sidebar'] a[href]",
+    "[class*='navigation'] a[href]",
+    "[class*='Navigation'] a[href]",
+    "a[href*='/documentation/en-us/uefn/']",
+]
 
 
 class UEFNCrawler:
@@ -58,8 +66,13 @@ class UEFNCrawler:
 
     async def _worker(self, browser):
         context = await browser.new_context(
-            ignore_https_errors=False,
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+            },
         )
         try:
             while True:
@@ -93,6 +106,7 @@ class UEFNCrawler:
                 content = extract_content(url, html)
                 write_page(url, content)
 
+            print(f"[LINKS] {len(discovered_urls)} new links on {url}")
             for link in discovered_urls:
                 if link not in self.visited:
                     await self.queue.put(link)
@@ -110,16 +124,28 @@ class UEFNCrawler:
         try:
             await page.goto(url, wait_until=NAVIGATION_WAIT, timeout=PAGE_LOAD_TIMEOUT_MS)
         except Exception as e:
-            print(f"[WARN] goto failed for {url}: {e}")
+            print(f"[WARN] goto {url}: {e}")
             raise
 
+        # Wait for main article content
         try:
             await page.wait_for_selector(
                 "article, main, [class*='content'], [class*='article']",
-                timeout=PAGE_LOAD_TIMEOUT_MS,
+                timeout=15_000,
             )
         except Exception:
-            pass  # Proceed even if selector not found
+            pass
+
+        # Extra wait for React to render navigation sidebar
+        await page.wait_for_timeout(4000)
+
+        # Try to wait for UEFN-specific nav links
+        for sel in NAV_SELECTORS:
+            try:
+                await page.wait_for_selector(sel, timeout=5_000)
+                break
+            except Exception:
+                continue
 
         html = await page.content()
         links = await self._extract_nav_links(page)
@@ -131,24 +157,37 @@ class UEFNCrawler:
                 "a[href]",
                 "els => els.map(e => e.href)",
             )
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] link eval failed: {e}")
             return []
 
+        seen: set[str] = set()
         result = []
         for h in hrefs:
-            if DOCS_ROOT in h and self._is_uefn_doc_url(h):
-                normalized = self._normalize_url(h)
-                if normalized:
-                    result.append(normalized)
+            if not h or not isinstance(h, str):
+                continue
+            if DOCS_ROOT not in h:
+                continue
+            if not self._is_uefn_doc_url(h):
+                continue
+            normalized = self._normalize_url(h)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(normalized)
+
         return result
 
     def _normalize_url(self, url: str) -> str:
-        p = urlparse(url)
-        return urlunparse((p.scheme, p.netloc, p.path.rstrip("/"), "", "", ""))
+        try:
+            p = urlparse(url)
+            return urlunparse((p.scheme, p.netloc, p.path.rstrip("/"), "", "", ""))
+        except Exception:
+            return ""
 
     def _is_uefn_doc_url(self, url: str) -> bool:
         blocked = [
-            "/_search", "/login", "javascript:", "mailto:", "#",
+            "/_search", "/login", "javascript:", "mailto:",
             ".png", ".jpg", ".svg", ".pdf", ".zip", ".gif", ".webp",
+            "/api/", "/__", "/cdn-cgi/",
         ]
         return not any(b in url for b in blocked)
