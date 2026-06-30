@@ -1,5 +1,5 @@
 __pycache__/
 *.pyc
 *.pyo
-scraper_state.json
+# scraper_state.json est versionné pour permettre la reprise entre runs CI
 .env
