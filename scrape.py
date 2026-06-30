@@ -20,6 +20,42 @@ from scraper.state import CrawlState
 
 ROOT_URL = DOCS_BASE_URL + "/unreal-editor-for-fortnite-documentation"
 
+# Known UEFN documentation section landing pages.
+# Used as seed URLs when the sitemap is unavailable (returns 403).
+# Ensures the crawler has many entry points even if link discovery fails on root.
+KNOWN_SECTION_URLS = [
+    DOCS_BASE_URL + "/unreal-editor-for-fortnite-documentation",
+    DOCS_BASE_URL + "/verse-language-reference",
+    DOCS_BASE_URL + "/scripting-with-verse",
+    DOCS_BASE_URL + "/learning-about-programming-with-verse",
+    DOCS_BASE_URL + "/verse-api",
+    DOCS_BASE_URL + "/building-in-fortnite",
+    DOCS_BASE_URL + "/devices",
+    DOCS_BASE_URL + "/tutorials",
+    DOCS_BASE_URL + "/working-with-assets",
+    DOCS_BASE_URL + "/animation",
+    DOCS_BASE_URL + "/audio",
+    DOCS_BASE_URL + "/cinematics",
+    DOCS_BASE_URL + "/landscape",
+    DOCS_BASE_URL + "/lighting",
+    DOCS_BASE_URL + "/materials",
+    DOCS_BASE_URL + "/niagara",
+    DOCS_BASE_URL + "/physics",
+    DOCS_BASE_URL + "/sequencer",
+    DOCS_BASE_URL + "/terrain",
+    DOCS_BASE_URL + "/user-interface",
+    DOCS_BASE_URL + "/fortnite-creative",
+    DOCS_BASE_URL + "/character",
+    DOCS_BASE_URL + "/game-features",
+    DOCS_BASE_URL + "/islands",
+    DOCS_BASE_URL + "/uefn-glossary",
+    DOCS_BASE_URL + "/what-s-new-in-uefn",
+    DOCS_BASE_URL + "/using-creator-services",
+    DOCS_BASE_URL + "/debugging-in-verse",
+    DOCS_BASE_URL + "/verse-concurrency",
+    DOCS_BASE_URL + "/verse-types",
+]
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Scrape the complete UEFN documentation")
@@ -52,8 +88,11 @@ async def main():
                 print("[SITEMAP] No sitemap found, falling back to recursive crawl")
 
         if not seed_urls or not args.sitemap_only:
-            if ROOT_URL not in seed_urls:
-                seed_urls.insert(0, ROOT_URL)
+            # Add hardcoded section seeds so the crawl has many entry points
+            # even when sitemap is blocked and root page yields 0 links.
+            for u in KNOWN_SECTION_URLS:
+                if u not in seed_urls:
+                    seed_urls.append(u)
 
     if args.resume:
         seed_urls = [u for u in seed_urls if not state.is_done(u)]

@@ -127,6 +127,12 @@ class UEFNCrawler:
             print(f"[WARN] goto {url}: {e}")
             raise
 
+        final_url = page.url
+        if final_url != url:
+            print(f"[REDIRECT] {url} -> {final_url}")
+        title = await page.title()
+        print(f"[PAGE] url={final_url} title={title!r}")
+
         # Wait for main article content
         try:
             await page.wait_for_selector(
@@ -160,6 +166,15 @@ class UEFNCrawler:
         except Exception as e:
             print(f"[WARN] link eval failed: {e}")
             return []
+
+        print(f"[DEBUG] {len(hrefs)} total <a href> on {page.url}")
+        uefn_raw = [h for h in hrefs if isinstance(h, str) and DOCS_ROOT in h]
+        print(f"[DEBUG] {len(uefn_raw)} match DOCS_ROOT='{DOCS_ROOT}'")
+        for sample in uefn_raw[:5]:
+            print(f"[DEBUG]   {sample}")
+        if not uefn_raw and hrefs:
+            for sample in hrefs[:5]:
+                print(f"[DEBUG] non-uefn sample: {sample}")
 
         seen: set[str] = set()
         result = []
