@@ -53,7 +53,7 @@ class UEFNCrawler:
         self._session.headers.update({
             **_BROWSER_HEADERS,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
         })
 
@@ -299,6 +299,7 @@ class UEFNCrawler:
         blocked = [
             "/_search", "/login", "javascript:", "mailto:",
             ".png", ".jpg", ".svg", ".pdf", ".zip", ".gif", ".webp",
+            ".woff", ".woff2", ".js", ".css", ".ico", ".ttf", ".eot",
             "/api/", "/__", "/cdn-cgi/",
         ]
         return not any(b in url for b in blocked)
