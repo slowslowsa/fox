@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Write",
+      "Read",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(playwright install *)",
+      "Bash(python3 *)",
+      "Bash(mkdir *)",
+      "Bash(rm -rf *)",
+      "Bash(find *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git rebase *)",
+      "Bash(git cherry-pick *)"
+    ]
+  }
+}

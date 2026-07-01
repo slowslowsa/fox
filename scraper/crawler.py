@@ -183,8 +183,8 @@ class UEFNCrawler:
                 return None, []
 
             html = resp.text
-            if len(html) < 5000:
-                print(f"[REQUESTS] {url} -> only {len(html)} bytes (React shell?), trying Playwright")
+            if len(html) < 500:
+                print(f"[REQUESTS] {url} -> only {len(html)} bytes (empty), skipping")
                 return None, []
 
             print(f"[REQUESTS] OK {url} ({len(html)} bytes)")
