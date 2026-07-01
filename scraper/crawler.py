@@ -53,7 +53,7 @@ class UEFNCrawler:
         self._session.headers.update({
             **_BROWSER_HEADERS,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
+            "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
         })
 
@@ -123,15 +123,18 @@ class UEFNCrawler:
         html, links = await self._try_requests_fetch(url)
         if html:
             content = extract_content(url, html)
-            write_page(url, content)
-            self._written += 1
-            print(f"[PROGRESS] {self._written} pages written")
-            print(f"[LINKS] {len(links)} new links on {url}")
-            for link in links:
-                if link not in self.visited:
-                    await self.queue.put(link)
-            await asyncio.sleep(REQUEST_DELAY_SECONDS)
-            return
+            # If extraction got real content, write it
+            if content["title"] and len(content["body_markdown"]) > 100:
+                write_page(url, content)
+                self._written += 1
+                print(f"[PROGRESS] {self._written} pages written")
+                print(f"[LINKS] {len(links)} new links on {url}")
+                for link in links:
+                    if link not in self.visited:
+                        await self.queue.put(link)
+                await asyncio.sleep(REQUEST_DELAY_SECONDS)
+                return
+            print(f"[REQUESTS] {url} -> extracted empty content (CSR?), falling back to Playwright")
 
         # Fall back to Playwright
         page = await context.new_page()
