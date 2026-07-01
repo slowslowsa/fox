@@ -4,7 +4,6 @@ UEFN Documentation Scraper
 
 Usage:
   python3 scrape.py                     # Full crawl (Wayback URLs + seeds)
-  python3 scrape.py --sitemap-only      # Sitemap only
   python3 scrape.py --crawl-only        # Skip URL discovery, use seeds only
   python3 scrape.py --resume            # Resume from saved state
   python3 scrape.py --url <URL>         # Scrape a single URL (for testing)
@@ -15,7 +14,7 @@ import asyncio
 
 from scraper.config import DOCS_BASE_URL
 from scraper.crawler import UEFNCrawler
-from scraper.sitemap import fetch_sitemap_urls, fetch_wayback_urls
+from scraper.sitemap import fetch_sitemap_urls, fetch_wayback_url_map
 from scraper.state import CrawlState
 
 ROOT_URL = DOCS_BASE_URL + "/unreal-editor-for-fortnite-documentation"
@@ -56,11 +55,10 @@ KNOWN_SECTION_URLS = [
 
 def parse_args():
     p = argparse.ArgumentParser(description="Scrape the complete UEFN documentation")
-    p.add_argument("--sitemap-only", action="store_true", help="Only use sitemap URLs")
     p.add_argument("--crawl-only", action="store_true", help="Skip URL discovery, use seeds only")
     p.add_argument("--resume", action="store_true", help="Resume from saved state")
     p.add_argument("--url", type=str, help="Scrape a single URL for testing")
-    p.add_argument("--limit", type=int, default=0, help="Stop after N pages (0 = no limit, for quick tests)")
+    p.add_argument("--limit", type=int, default=0, help="Stop after N pages (0 = no limit)")
     return p.parse_args()
 
 
@@ -68,43 +66,45 @@ async def main():
     args = parse_args()
     state = CrawlState()
 
+    url_timestamps: dict[str, str] = {}
+    seed_urls: list[str] = []
+
     if args.url:
         seed_urls = [args.url]
         print(f"[SINGLE] Testing single URL: {args.url}")
     elif args.resume and state.pending:
-        seed_urls = state.pending
+        seed_urls = list(state.pending)
         print(f"[RESUME] {len(seed_urls)} pending URLs from state")
     else:
-        seed_urls = []
-
         if not args.crawl_only:
-            # 1. Try sitemap
+            # Try sitemap first
             print("[SITEMAP] Trying sitemap discovery...")
             sitemap_urls = fetch_sitemap_urls()
             if sitemap_urls:
                 seed_urls = sitemap_urls
             else:
-                # 2. Try Wayback Machine CDX — gets thousands of URLs instantly
-                print("[WAYBACK] Trying Wayback Machine CDX URL discovery...")
-                wayback_urls = fetch_wayback_urls()
-                if wayback_urls:
-                    seed_urls = wayback_urls
+                # Wayback CDX: get all known URLs + timestamps
+                print("[WAYBACK] Fetching archived URL list...")
+                url_timestamps = fetch_wayback_url_map()
+                if url_timestamps:
+                    seed_urls = list(url_timestamps.keys())
 
-        # Always add hardcoded seeds as fallback / to fill gaps
-        if not args.sitemap_only:
-            for u in KNOWN_SECTION_URLS:
-                if u not in seed_urls:
-                    seed_urls.append(u)
+        # Always add hardcoded seeds to fill gaps
+        seed_set = set(seed_urls)
+        for u in KNOWN_SECTION_URLS:
+            if u not in seed_set:
+                seed_urls.append(u)
 
     if args.resume:
-        seed_urls = [u for u in seed_urls if not state.is_done(u)]
+        done = state.visited
+        seed_urls = [u for u in seed_urls if u not in done]
 
     if args.limit:
         print(f"[LIMIT] Quick test mode: stopping after {args.limit} pages")
 
-    print(f"[START] {len(seed_urls)} seed URL(s) to process")
+    print(f"[START] {len(seed_urls)} seed URL(s) | {len(url_timestamps)} with Wayback timestamps")
 
-    crawler = UEFNCrawler(limit=args.limit)
+    crawler = UEFNCrawler(limit=args.limit, url_timestamps=url_timestamps)
     if args.resume:
         crawler.visited = state.visited.copy()
 
@@ -124,10 +124,10 @@ async def main():
 
         total = len(crawler.visited)
         failed = len(crawler.failed)
-        print(f"\n[DONE] Visited {total} pages, {failed} failed")
+        print(f"\n[DONE] Visited {total} pages, {crawler._written} written, {failed} failed")
         if crawler.failed:
             print("[FAILED URLS]")
-            for url, count in crawler.failed.items():
+            for url, count in list(crawler.failed.items())[:20]:
                 print(f"  {url} ({count} attempts)")
 
 

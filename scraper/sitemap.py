@@ -1,6 +1,9 @@
 import xml.etree.ElementTree as ET
 import requests
-from scraper.config import SITEMAP_URLS, DOCS_ROOT, BASE_URL, CA_BUNDLE
+from scraper.config import SITEMAP_URLS, DOCS_ROOT, BASE_URL, CA_BUNDLE, WAYBACK_CDX_URL
+
+_SKIP_EXTS = (".png", ".jpg", ".svg", ".pdf", ".zip", ".gif", ".webp", ".js", ".css",
+               ".woff", ".woff2", ".ico", ".ttf", ".eot")
 
 
 def fetch_sitemap_urls() -> list[str]:
@@ -13,43 +16,43 @@ def fetch_sitemap_urls() -> list[str]:
 
 
 def fetch_wayback_urls() -> list[str]:
-    """Get all UEFN URLs from Wayback Machine CDX API (archive.org index)."""
+    """Get all UEFN URLs from Wayback Machine CDX API."""
+    url_map = fetch_wayback_url_map()
+    return list(url_map.keys())
+
+
+def fetch_wayback_url_map() -> dict[str, str]:
+    """Return {original_url: latest_timestamp} for all archived UEFN pages."""
     host = BASE_URL.replace("https://", "").replace("http://", "")
-    cdx = (
-        "https://web.archive.org/cdx/search/cdx"
-        f"?url={host}{DOCS_ROOT}/*"
-        "&output=json&fl=original&collapse=urlkey&limit=10000"
-    )
+    valid_prefix = f"https://{host}{DOCS_ROOT}/"
+
     try:
-        print(f"[WAYBACK] Fetching URL list from CDX API...")
-        r = requests.get(cdx, timeout=60, verify=CA_BUNDLE)
+        print("[WAYBACK] Fetching URL+timestamp list from CDX API...")
+        r = requests.get(WAYBACK_CDX_URL, timeout=60, verify=CA_BUNDLE)
         if r.status_code != 200:
             print(f"[WAYBACK] CDX returned HTTP {r.status_code}")
-            return []
+            return {}
         rows = r.json()
-        # First row is header ["original"], rest are data rows
-        urls = []
-        seen = set()
-        skip_exts = (".png", ".jpg", ".svg", ".pdf", ".zip", ".gif", ".webp", ".js", ".css")
-        valid_prefix = f"https://{host}{DOCS_ROOT}/"
+        url_map: dict[str, str] = {}
         for row in rows[1:]:
-            u = row[0].split("?")[0].split("#")[0].rstrip("/")
-            # Normalise to https
+            if len(row) < 2:
+                continue
+            ts, u = row[0], row[1]
+            u = u.split("?")[0].split("#")[0].rstrip("/")
             if u.startswith("http://"):
                 u = "https://" + u[7:]
-            # Must be a real sub-page (has a path segment after DOCS_ROOT/)
             if not u.startswith(valid_prefix):
                 continue
-            if any(u.endswith(ext) for ext in skip_exts):
+            if any(u.endswith(ext) for ext in _SKIP_EXTS):
                 continue
-            if u not in seen:
-                seen.add(u)
-                urls.append(u)
-        print(f"[WAYBACK] {len(urls)} unique UEFN URLs found")
-        return urls
+            # Keep the latest timestamp for each URL
+            if u not in url_map or ts > url_map[u]:
+                url_map[u] = ts
+        print(f"[WAYBACK] {len(url_map)} unique UEFN URLs found")
+        return url_map
     except Exception as e:
         print(f"[WAYBACK] CDX API failed: {e}")
-        return []
+        return {}
 
 
 def _try_sitemap(url: str) -> list[str]:
