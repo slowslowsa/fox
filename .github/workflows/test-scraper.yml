@@ -44,7 +44,7 @@ jobs:
         run: |
           rm -rf docs/uefn/
           rm -f scraper_state.json
-          python3 scrape.py --crawl-only --limit 3
+          python3 scrape.py --limit 3
           echo "=== Files created ==="
           find docs/uefn -name "*.md" 2>/dev/null | head -20
           echo "=== Content sample ==="
