@@ -77,17 +77,17 @@ async def main():
         print(f"[RESUME] {len(seed_urls)} pending URLs from state")
     else:
         if not args.crawl_only:
-            # Try sitemap first
-            print("[SITEMAP] Trying sitemap discovery...")
-            sitemap_urls = fetch_sitemap_urls()
-            if sitemap_urls:
-                seed_urls = sitemap_urls
+            # Wayback CDX: primary source — gives URLs + timestamps for id_ fetch
+            print("[WAYBACK] Fetching archived URL list...")
+            url_timestamps = fetch_wayback_url_map()
+            if url_timestamps:
+                seed_urls = list(url_timestamps.keys())
             else:
-                # Wayback CDX: get all known URLs + timestamps
-                print("[WAYBACK] Fetching archived URL list...")
-                url_timestamps = fetch_wayback_url_map()
-                if url_timestamps:
-                    seed_urls = list(url_timestamps.keys())
+                # Fallback: try live sitemap (no timestamps, Wayback will use default)
+                print("[SITEMAP] CDX failed, trying sitemap...")
+                sitemap_urls = fetch_sitemap_urls()
+                if sitemap_urls:
+                    seed_urls = sitemap_urls
 
         # Always add hardcoded seeds to fill gaps
         seed_set = set(seed_urls)

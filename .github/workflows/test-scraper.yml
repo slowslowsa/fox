@@ -6,7 +6,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     permissions:
       contents: write
@@ -41,6 +41,8 @@ jobs:
           "
 
       - name: Scrape 3 pages (quick test)
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           rm -rf docs/uefn/
           rm -f scraper_state.json

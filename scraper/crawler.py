@@ -142,9 +142,9 @@ class UEFNCrawler:
     async def _process_url(self, context: BrowserContext, url: str):
         if url in self.visited:
             return
+        self.visited.add(url)  # mark before limit check to prevent re-queuing
         if self._limit and self._written >= self._limit:
             return
-        self.visited.add(url)
 
         # ── Strategy 1: Wayback Machine id_ (archived HTML, no JS needed) ──
         ts = self._url_timestamps.get(url, WAYBACK_TIMESTAMP)
