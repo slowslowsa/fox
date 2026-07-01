@@ -105,7 +105,8 @@ async def main():
     print(f"[START] {len(seed_urls)} seed URL(s) to process")
 
     crawler = UEFNCrawler(limit=args.limit)
-    crawler.visited = state.visited.copy()
+    if args.resume:
+        crawler.visited = state.visited.copy()
 
     try:
         await crawler.run(seed_urls)

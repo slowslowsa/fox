@@ -187,6 +187,12 @@ class UEFNCrawler:
                 print(f"[REQUESTS] {url} -> only {len(html)} bytes (empty), skipping")
                 return None, []
 
+            # Detect binary/compressed garbage (not valid HTML)
+            stripped = html.lstrip()
+            if not stripped.startswith(("<", "!")):
+                print(f"[REQUESTS] {url} -> response is not HTML (starts with {repr(stripped[:20])}), skipping")
+                return None, []
+
             print(f"[REQUESTS] OK {url} ({len(html)} bytes)")
             links = self._extract_links_from_html(html, url)
             return html, links

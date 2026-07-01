@@ -10,12 +10,12 @@ SITEMAP_URLS = [
     "https://dev.epicgames.com/documentation/en-us/uefn/sitemap.xml",
 ]
 
-REQUEST_DELAY_SECONDS = 1.5
-MAX_CONCURRENT_PAGES = 2
-MAX_RETRIES = 3
+REQUEST_DELAY_SECONDS = 1.0
+MAX_CONCURRENT_PAGES = 3
+MAX_RETRIES = 2
 RETRY_BACKOFF_MULTIPLIER = 2.0
-PAGE_LOAD_TIMEOUT_MS = 60_000
-NAVIGATION_WAIT = "networkidle"
+PAGE_LOAD_TIMEOUT_MS = 30_000
+NAVIGATION_WAIT = "domcontentloaded"
 
 OUTPUT_DIR = "docs"
 STATE_FILE = "scraper_state.json"

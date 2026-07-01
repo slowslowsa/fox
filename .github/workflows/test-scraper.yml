@@ -43,11 +43,17 @@ jobs:
       - name: Scrape 3 pages (quick test)
         run: |
           rm -rf docs/uefn/
+          rm -f scraper_state.json
           python3 scrape.py --crawl-only --limit 3
           echo "=== Files created ==="
           find docs/uefn -name "*.md" 2>/dev/null | head -20
           echo "=== Content sample ==="
           find docs/uefn -name "*.md" 2>/dev/null | head -1 | xargs head -30 2>/dev/null || true
+          COUNT=$(find docs/uefn -name "*.md" 2>/dev/null | wc -l)
+          echo "=== TOTAL: ${COUNT} pages written ==="
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: 0 pages written — scraper failed" && exit 1
+          fi
 
       - name: Commit test results
         run: |
