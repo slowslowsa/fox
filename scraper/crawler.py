@@ -70,7 +70,7 @@ _PLAYWRIGHT_HEADERS = {
 
 
 class UEFNCrawler:
-    def __init__(self, limit: int = 0, url_timestamps: dict[str, str] | None = None):
+    def __init__(self, limit: int = 0, url_timestamps: dict[str, str] | None = None, live_first: bool = False):
         self.visited: set[str] = set()
         self.failed: dict[str, int] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -78,6 +78,7 @@ class UEFNCrawler:
         self._limit = limit
         self._written = 0
         self._url_timestamps = url_timestamps or {}
+        self._live_first = live_first
 
         self._live_session = requests.Session()
         self._live_session.headers.update(_LIVE_HEADERS)
@@ -146,6 +147,12 @@ class UEFNCrawler:
         if self._limit and self._written >= self._limit:
             return
 
+        if self._live_first:
+            await self._process_live_first(context, url)
+        else:
+            await self._process_wayback_first(context, url)
+
+    async def _process_wayback_first(self, context: BrowserContext, url: str):
         # ── Strategy 1: Wayback Machine id_ (archived HTML, no JS needed) ──
         ts = self._url_timestamps.get(url, WAYBACK_TIMESTAMP)
         html = await self._fetch_wayback(url, ts)
@@ -168,7 +175,7 @@ class UEFNCrawler:
                 return
             print(f"[REQUESTS] {url} -> empty content (CSR?), trying Playwright")
 
-        # ── Strategy 3: Playwright (full JS rendering) ──
+        # ── Strategy 3: Playwright (full JS rendering + all links) ──
         page = await context.new_page()
         try:
             result = await self._fetch_playwright(page, url)
@@ -181,6 +188,36 @@ class UEFNCrawler:
                     print(f"[PLAYWRIGHT] {url} -> still empty after JS render, skipping")
         finally:
             await page.close()
+
+        await asyncio.sleep(REQUEST_DELAY_SECONDS)
+
+    async def _process_live_first(self, context: BrowserContext, url: str):
+        # ── Strategy 1: Playwright (live site, full JS, all clickable links) ──
+        page = await context.new_page()
+        try:
+            result = await self._fetch_playwright(page, url)
+            if result:
+                html, links = result
+                content = extract_content(url, html)
+                if has_real_content(content):
+                    self._save(url, content, links)
+                    await asyncio.sleep(REQUEST_DELAY_SECONDS)
+                    return
+                print(f"[PLAYWRIGHT] {url} -> empty content, trying Wayback")
+        finally:
+            await page.close()
+
+        # ── Strategy 2: Wayback Machine id_ (fallback for blocked/missing pages) ──
+        ts = self._url_timestamps.get(url, WAYBACK_TIMESTAMP)
+        html = await self._fetch_wayback(url, ts)
+        if html:
+            content = extract_content(url, html)
+            if has_real_content(content):
+                links = self._extract_links_from_html(html, url)
+                self._save(url, content, links)
+                await asyncio.sleep(WAYBACK_DELAY_SECONDS)
+                return
+            print(f"[WAYBACK] {url} -> empty content, skipping")
 
         await asyncio.sleep(REQUEST_DELAY_SECONDS)
 
@@ -355,6 +392,6 @@ class UEFNCrawler:
             return False
         blocked_parts = [
             "/_search", "/login", "javascript:", "mailto:",
-            "/api/", "/__", "/cdn-cgi/", "?", "#",
+            "/__", "/cdn-cgi/", "?", "#",
         ]
         return not any(b in url for b in blocked_parts)

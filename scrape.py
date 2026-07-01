@@ -3,11 +3,12 @@
 UEFN Documentation Scraper
 
 Usage:
-  python3 scrape.py                     # Full crawl (Wayback URLs + seeds)
+  python3 scrape.py --local             # Local PC: live 2026 content, all links (RECOMMENDED for local use)
+  python3 scrape.py --local --limit 5   # Quick local test (5 pages)
+  python3 scrape.py                     # Full crawl via Wayback (for CI/GitHub Actions)
   python3 scrape.py --crawl-only        # Skip URL discovery, use seeds only
   python3 scrape.py --resume            # Resume from saved state
-  python3 scrape.py --url <URL>         # Scrape a single URL (for testing)
-  python3 scrape.py --limit 5           # Stop after 5 pages (quick test)
+  python3 scrape.py --url <URL>         # Scrape a single URL for testing
 """
 import argparse
 import asyncio
@@ -59,6 +60,8 @@ def parse_args():
     p.add_argument("--resume", action="store_true", help="Resume from saved state")
     p.add_argument("--url", type=str, help="Scrape a single URL for testing")
     p.add_argument("--limit", type=int, default=0, help="Stop after N pages (0 = no limit)")
+    p.add_argument("--local", action="store_true",
+                   help="Local mode: Playwright first (live 2026 content + all links), Wayback as fallback")
     return p.parse_args()
 
 
@@ -102,9 +105,11 @@ async def main():
     if args.limit:
         print(f"[LIMIT] Quick test mode: stopping after {args.limit} pages")
 
+    if args.local:
+        print("[MODE] Local: Playwright-first (live 2026 content, all clickable links captured)")
     print(f"[START] {len(seed_urls)} seed URL(s) | {len(url_timestamps)} with Wayback timestamps")
 
-    crawler = UEFNCrawler(limit=args.limit, url_timestamps=url_timestamps)
+    crawler = UEFNCrawler(limit=args.limit, url_timestamps=url_timestamps, live_first=args.local)
     if args.resume:
         crawler.visited = state.visited.copy()
 
