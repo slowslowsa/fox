@@ -1,10 +1,14 @@
 import asyncio
-from urllib.parse import urlparse, urlunparse
+import functools
+from urllib.parse import urlparse, urlunparse, urljoin
 
+import requests
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, BrowserContext, Page
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from scraper.config import (
+    CA_BUNDLE,
     DOCS_ROOT,
     MAX_CONCURRENT_PAGES,
     MAX_RETRIES,
@@ -26,6 +30,16 @@ NAV_SELECTORS = [
     "a[href*='/documentation/en-us/uefn/']",
 ]
 
+ERROR_URL_PATTERNS = ["/403", "/404", "/error", "/access-denied"]
+
+_BROWSER_HEADERS = {
+    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
+
 
 class UEFNCrawler:
     def __init__(self):
@@ -33,6 +47,13 @@ class UEFNCrawler:
         self.failed: dict[str, int] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
+        self._session = requests.Session()
+        self._session.headers.update({
+            **_BROWSER_HEADERS,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+        })
 
     async def run(self, seed_urls: list[str]):
         for url in seed_urls:
@@ -47,6 +68,7 @@ class UEFNCrawler:
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
                 ],
             )
             if PROXY_CONFIG:
@@ -64,15 +86,13 @@ class UEFNCrawler:
             await asyncio.gather(*workers, return_exceptions=True)
             await browser.close()
 
+        self._session.close()
+
     async def _worker(self, browser):
-        context = await browser.new_context(
-            extra_http_headers={
-                "Accept-Language": "en-US,en;q=0.9",
-                "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-            },
+        context = await browser.new_context(extra_http_headers=_BROWSER_HEADERS)
+        # Mask headless automation fingerprint
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         try:
             while True:
@@ -95,6 +115,19 @@ class UEFNCrawler:
             return
         self.visited.add(url)
 
+        # Try requests first — avoids headless browser detection
+        html, links = await self._try_requests_fetch(url)
+        if html:
+            content = extract_content(url, html)
+            write_page(url, content)
+            print(f"[LINKS] {len(links)} new links on {url}")
+            for link in links:
+                if link not in self.visited:
+                    await self.queue.put(link)
+            await asyncio.sleep(REQUEST_DELAY_SECONDS)
+            return
+
+        # Fall back to Playwright
         page = await context.new_page()
         try:
             result = await self._fetch_page(page, url)
@@ -115,6 +148,53 @@ class UEFNCrawler:
 
         await asyncio.sleep(REQUEST_DELAY_SECONDS)
 
+    async def _try_requests_fetch(self, url: str):
+        """Fetch page with requests (faster, no headless fingerprint)."""
+        loop = asyncio.get_event_loop()
+        try:
+            resp = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    self._session.get,
+                    url,
+                    timeout=30,
+                    verify=CA_BUNDLE,
+                    allow_redirects=True,
+                ),
+            )
+            final_url = resp.url
+            if resp.status_code != 200 or any(p in final_url for p in ERROR_URL_PATTERNS):
+                print(f"[REQUESTS] {url} -> HTTP {resp.status_code} / {final_url}, trying Playwright")
+                return None, []
+
+            html = resp.text
+            if len(html) < 5000:
+                print(f"[REQUESTS] {url} -> only {len(html)} bytes (React shell?), trying Playwright")
+                return None, []
+
+            print(f"[REQUESTS] OK {url} ({len(html)} bytes)")
+            links = self._extract_links_from_html(html, url)
+            return html, links
+        except Exception as e:
+            print(f"[REQUESTS] {url} failed: {e}, trying Playwright")
+            return None, []
+
+    def _extract_links_from_html(self, html: str, base_url: str) -> list[str]:
+        soup = BeautifulSoup(html, "lxml")
+        seen: set[str] = set()
+        result = []
+        for a in soup.find_all("a", href=True):
+            full = urljoin(base_url, a["href"])
+            if DOCS_ROOT not in full:
+                continue
+            if not self._is_uefn_doc_url(full):
+                continue
+            norm = self._normalize_url(full)
+            if norm and norm not in seen:
+                seen.add(norm)
+                result.append(norm)
+        return result
+
     @retry(
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_exponential(multiplier=RETRY_BACKOFF_MULTIPLIER, min=2, max=30),
@@ -128,12 +208,15 @@ class UEFNCrawler:
             raise
 
         final_url = page.url
+        if any(p in final_url for p in ERROR_URL_PATTERNS):
+            print(f"[SKIP] {url} -> blocked by Epic ({final_url})")
+            return None
+
         if final_url != url:
             print(f"[REDIRECT] {url} -> {final_url}")
         title = await page.title()
         print(f"[PAGE] url={final_url} title={title!r}")
 
-        # Wait for main article content
         try:
             await page.wait_for_selector(
                 "article, main, [class*='content'], [class*='article']",
@@ -142,10 +225,8 @@ class UEFNCrawler:
         except Exception:
             pass
 
-        # Extra wait for React to render navigation sidebar
         await page.wait_for_timeout(4000)
 
-        # Try to wait for UEFN-specific nav links
         for sel in NAV_SELECTORS:
             try:
                 await page.wait_for_selector(sel, timeout=5_000)

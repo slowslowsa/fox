@@ -51,6 +51,18 @@ jobs:
             "https://dev.epicgames.com/sitemap.xml" \
             --max-time 15 || echo "sitemap curl failed"
 
+      - name: Purge invalid docs (403 error pages from previous runs)
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" != "resume" ]; then
+            echo "Suppression des anciens fichiers docs (peuvent contenir des pages 403)..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -r --cached docs/uefn/ 2>/dev/null || true
+            rm -rf docs/uefn/
+            echo "Nettoyage terminé."
+          fi
+
       - name: Run scraper
         run: |
           MODE="${{ github.event.inputs.mode }}"
