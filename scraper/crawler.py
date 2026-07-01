@@ -2,12 +2,13 @@
 UEFN Documentation Crawler
 
 Fetch strategy (in order):
-  1. Wayback Machine id_ mode  — raw archived HTML, no JS needed, no Epic blocking
-  2. Live site via requests     — fast, uses brotli for SSR content
-  3. Playwright                 — full JS rendering, last resort
+  1. Wayback Machine (regular mode) — properly decoded UTF-8 HTML, no Epic blocking
+  2. Live site via requests          — fast, uses brotli for SSR content
+  3. Playwright                      — full JS rendering, last resort
 """
 import asyncio
 import functools
+import re
 from urllib.parse import urlparse, urlunparse, urljoin
 
 import requests
@@ -163,7 +164,7 @@ class UEFNCrawler:
                 self._save(url, content, links)
                 await asyncio.sleep(WAYBACK_DELAY_SECONDS)
                 return
-            print(f"[WAYBACK] {url} -> empty content, trying live site")
+            print(f"[WAYBACK] {url} -> empty content (title={content['title']!r:.40}, body={len(content['body_markdown'])}chars), trying live site")
 
         # ── Strategy 2: Live site via requests (with Brotli support) ──
         html, links = await self._fetch_live_requests(url)
@@ -253,13 +254,14 @@ class UEFNCrawler:
             if resp.status_code != 200:
                 print(f"[WAYBACK] {url} -> HTTP {resp.status_code}")
                 return None
+            enc = resp.headers.get("Content-Encoding", "none")
             html = resp.text
             if len(html) < 500:
                 return None
             if not html.lstrip().startswith(("<", "!")):
-                print(f"[WAYBACK] {url} -> not HTML (binary?)")
+                print(f"[WAYBACK] {url} -> not HTML (encoding={enc}, binary?)")
                 return None
-            print(f"[WAYBACK] {url} -> {len(html)} bytes")
+            print(f"[WAYBACK] {url} -> {len(html)} chars (encoding={enc})")
             return html
         except Exception as e:
             print(f"[WAYBACK] {url} failed: {e}")
@@ -346,6 +348,8 @@ class UEFNCrawler:
         for a in soup.find_all("a", href=True):
             href = a["href"]
             full = urljoin(base_url, href)
+            # Strip Wayback URL wrapper if present (regular Wayback mode modifies links)
+            full = self._unwayback_url(full)
             norm = self._normalize_url(full)
             if norm and self._is_uefn_doc_url(norm) and norm not in seen:
                 seen.add(norm)
@@ -384,6 +388,11 @@ class UEFNCrawler:
             return urlunparse((p.scheme, p.netloc, p.path.rstrip("/"), "", "", ""))
         except Exception:
             return ""
+
+    def _unwayback_url(self, url: str) -> str:
+        """Extract original URL from a Wayback-wrapped link."""
+        m = re.match(r'https?://web\.archive\.org/web/\d+[^/]*/(https?://.*)', url)
+        return m.group(1) if m else url
 
     def _is_uefn_doc_url(self, url: str) -> bool:
         if not any(root in url for root in DOCS_ROOTS_ALLOWED):

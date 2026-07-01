@@ -22,7 +22,7 @@ WAYBACK_CDX_URL = (
     "?url=dev.epicgames.com/documentation/en-us/uefn/*"
     "&output=json&fl=timestamp,original&collapse=urlkey&limit=10000"
 )
-WAYBACK_FETCH_BASE = "https://web.archive.org/web/{timestamp}id_/{url}"
+WAYBACK_FETCH_BASE = "https://web.archive.org/web/{timestamp}/{url}"
 WAYBACK_TIMESTAMP = "20250101000000"  # use snapshot nearest to this date
 
 REQUEST_DELAY_SECONDS = 0.5
