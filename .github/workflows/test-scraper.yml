@@ -1,0 +1,63 @@
+name: Test Scraper (Quick)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: claude/uefn-documentation-ny5a0m
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Test Wayback CDX URL discovery
+        run: |
+          python3 -c "
+          from scraper.sitemap import fetch_wayback_urls
+          urls = fetch_wayback_urls()
+          print(f'RESULT: {len(urls)} URLs found via Wayback CDX')
+          for u in urls[:5]:
+              print(f'  {u}')
+          "
+
+      - name: Scrape 3 pages (quick test)
+        run: |
+          rm -rf docs/uefn/
+          python3 scrape.py --limit 3
+          echo "=== Files created ==="
+          find docs/uefn -name "*.md" 2>/dev/null | head -20
+          echo "=== Content sample ==="
+          find docs/uefn -name "*.md" 2>/dev/null | head -1 | xargs head -30 2>/dev/null || true
+
+      - name: Commit test results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/ 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No files to commit."
+          else
+            COUNT=$(find docs/uefn -name "*.md" 2>/dev/null | wc -l)
+            git commit -m "test: quick scraper test (${COUNT} pages)"
+            git push
+          fi

@@ -3,26 +3,23 @@
 UEFN Documentation Scraper
 
 Usage:
-  python3 scrape.py                     # Full crawl (sitemap + recursive)
+  python3 scrape.py                     # Full crawl (Wayback URLs + seeds)
   python3 scrape.py --sitemap-only      # Sitemap only
-  python3 scrape.py --crawl-only        # Skip sitemap, start from root URL
+  python3 scrape.py --crawl-only        # Skip URL discovery, use seeds only
   python3 scrape.py --resume            # Resume from saved state
   python3 scrape.py --url <URL>         # Scrape a single URL (for testing)
+  python3 scrape.py --limit 5           # Stop after 5 pages (quick test)
 """
 import argparse
 import asyncio
-import sys
 
 from scraper.config import DOCS_BASE_URL
 from scraper.crawler import UEFNCrawler
-from scraper.sitemap import fetch_sitemap_urls
+from scraper.sitemap import fetch_sitemap_urls, fetch_wayback_urls
 from scraper.state import CrawlState
 
 ROOT_URL = DOCS_BASE_URL + "/unreal-editor-for-fortnite-documentation"
 
-# Known UEFN documentation section landing pages.
-# Used as seed URLs when the sitemap is unavailable (returns 403).
-# Ensures the crawler has many entry points even if link discovery fails on root.
 KNOWN_SECTION_URLS = [
     DOCS_BASE_URL + "/unreal-editor-for-fortnite-documentation",
     DOCS_BASE_URL + "/verse-language-reference",
@@ -60,9 +57,10 @@ KNOWN_SECTION_URLS = [
 def parse_args():
     p = argparse.ArgumentParser(description="Scrape the complete UEFN documentation")
     p.add_argument("--sitemap-only", action="store_true", help="Only use sitemap URLs")
-    p.add_argument("--crawl-only", action="store_true", help="Skip sitemap, crawl from root")
+    p.add_argument("--crawl-only", action="store_true", help="Skip URL discovery, use seeds only")
     p.add_argument("--resume", action="store_true", help="Resume from saved state")
     p.add_argument("--url", type=str, help="Scrape a single URL for testing")
+    p.add_argument("--limit", type=int, default=0, help="Stop after N pages (0 = no limit, for quick tests)")
     return p.parse_args()
 
 
@@ -80,16 +78,20 @@ async def main():
         seed_urls = []
 
         if not args.crawl_only:
+            # 1. Try sitemap
             print("[SITEMAP] Trying sitemap discovery...")
             sitemap_urls = fetch_sitemap_urls()
             if sitemap_urls:
                 seed_urls = sitemap_urls
             else:
-                print("[SITEMAP] No sitemap found, falling back to recursive crawl")
+                # 2. Try Wayback Machine CDX — gets thousands of URLs instantly
+                print("[WAYBACK] Trying Wayback Machine CDX URL discovery...")
+                wayback_urls = fetch_wayback_urls()
+                if wayback_urls:
+                    seed_urls = wayback_urls
 
-        if not seed_urls or not args.sitemap_only:
-            # Add hardcoded section seeds so the crawl has many entry points
-            # even when sitemap is blocked and root page yields 0 links.
+        # Always add hardcoded seeds as fallback / to fill gaps
+        if not args.sitemap_only:
             for u in KNOWN_SECTION_URLS:
                 if u not in seed_urls:
                     seed_urls.append(u)
@@ -97,9 +99,12 @@ async def main():
     if args.resume:
         seed_urls = [u for u in seed_urls if not state.is_done(u)]
 
+    if args.limit:
+        print(f"[LIMIT] Quick test mode: stopping after {args.limit} pages")
+
     print(f"[START] {len(seed_urls)} seed URL(s) to process")
 
-    crawler = UEFNCrawler()
+    crawler = UEFNCrawler(limit=args.limit)
     crawler.visited = state.visited.copy()
 
     try:

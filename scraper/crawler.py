@@ -42,11 +42,13 @@ _BROWSER_HEADERS = {
 
 
 class UEFNCrawler:
-    def __init__(self):
+    def __init__(self, limit: int = 0):
         self.visited: set[str] = set()
         self.failed: dict[str, int] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
+        self._limit = limit  # 0 = no limit
+        self._written = 0
         self._session = requests.Session()
         self._session.headers.update({
             **_BROWSER_HEADERS,
@@ -113,6 +115,8 @@ class UEFNCrawler:
     async def _process_page(self, context: BrowserContext, url: str):
         if url in self.visited:
             return
+        if self._limit and self._written >= self._limit:
+            return
         self.visited.add(url)
 
         # Try requests first — avoids headless browser detection
@@ -120,6 +124,8 @@ class UEFNCrawler:
         if html:
             content = extract_content(url, html)
             write_page(url, content)
+            self._written += 1
+            print(f"[PROGRESS] {self._written} pages written")
             print(f"[LINKS] {len(links)} new links on {url}")
             for link in links:
                 if link not in self.visited:
@@ -138,6 +144,8 @@ class UEFNCrawler:
             if html:
                 content = extract_content(url, html)
                 write_page(url, content)
+                self._written += 1
+                print(f"[PROGRESS] {self._written} pages written")
 
             print(f"[LINKS] {len(discovered_urls)} new links on {url}")
             for link in discovered_urls:
