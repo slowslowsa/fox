@@ -31,14 +31,17 @@ def fetch_wayback_urls() -> list[str]:
         urls = []
         seen = set()
         skip_exts = (".png", ".jpg", ".svg", ".pdf", ".zip", ".gif", ".webp", ".js", ".css")
+        valid_prefix = f"https://{host}{DOCS_ROOT}/"
         for row in rows[1:]:
             u = row[0].split("?")[0].split("#")[0].rstrip("/")
-            if DOCS_ROOT not in u:
+            # Normalise to https
+            if u.startswith("http://"):
+                u = "https://" + u[7:]
+            # Must be a real sub-page (has a path segment after DOCS_ROOT/)
+            if not u.startswith(valid_prefix):
                 continue
             if any(u.endswith(ext) for ext in skip_exts):
                 continue
-            if not u.startswith("http"):
-                u = "https://" + u
             if u not in seen:
                 seen.add(u)
                 urls.append(u)

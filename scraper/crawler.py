@@ -165,14 +165,21 @@ class UEFNCrawler:
                 functools.partial(
                     self._session.get,
                     url,
-                    timeout=30,
+                    timeout=10,
                     verify=CA_BUNDLE,
                     allow_redirects=True,
                 ),
             )
             final_url = resp.url
-            if resp.status_code != 200 or any(p in final_url for p in ERROR_URL_PATTERNS):
-                print(f"[REQUESTS] {url} -> HTTP {resp.status_code} / {final_url}, trying Playwright")
+            if any(p in final_url for p in ERROR_URL_PATTERNS):
+                print(f"[SKIP] {url} -> error page ({final_url})")
+                return None, []
+            # Hard fail on 4xx/5xx — don't waste time on Playwright for dead URLs
+            if resp.status_code >= 400:
+                print(f"[SKIP] {url} -> HTTP {resp.status_code}")
+                return None, []
+            if resp.status_code != 200:
+                print(f"[REQUESTS] {url} -> HTTP {resp.status_code}, trying Playwright")
                 return None, []
 
             html = resp.text
